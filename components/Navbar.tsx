@@ -43,7 +43,7 @@ export function Navbar() {
                 Log in
               </button>
             </SignInButton>
-            <SignUpButton mode="modal" signUpForceRedirectUrl="/upload">
+            <SignUpButton mode="modal" forceRedirectUrl="/upload">
               <button className="rounded-full bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-700 sm:text-sm">
                 Register
               </button>
