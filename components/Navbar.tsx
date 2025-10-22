@@ -10,7 +10,6 @@ import {
 const navLinks = [
   { label: 'Home', href: '/' },
   { label: 'Features', href: '/#features' },
-  { label: 'Upload', href: '/upload' },
 ];
 
 export function Navbar() {
@@ -43,7 +42,7 @@ export function Navbar() {
                 Log in
               </button>
             </SignInButton>
-            <SignUpButton mode="modal" forceRedirectUrl="/upload">
+            <SignUpButton mode="modal" forceRedirectUrl="/configure">
               <button className="rounded-full bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-700 sm:text-sm">
                 Register
               </button>
@@ -58,10 +57,10 @@ export function Navbar() {
                 Dashboard
               </Link>
               <Link
-                href="/upload"
+                href="/configure"
                 className="hidden rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600 transition hover:border-indigo-100 hover:text-indigo-600 sm:block sm:text-sm"
               >
-                Upload
+                Configure
               </Link>
             </div>
             <UserButton />

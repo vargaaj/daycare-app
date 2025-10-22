@@ -127,6 +127,23 @@ export function UploadForm() {
         Upload your current classroom spreadsheet so we can validate it before
         optimization.
       </p>
+      <div className="mt-6 rounded-xl bg-slate-100 px-4 py-3 text-xs text-slate-600">
+        <p className="font-semibold text-slate-900">Required columns:</p>
+        <div className="mt-4 overflow-hidden rounded-lg border border-slate-200 bg-white text-left text-[11px] sm:text-xs">
+          <div className="grid grid-cols-4 bg-slate-50 px-3 py-2 font-semibold text-slate-700">
+            <span>Child Name</span>
+            <span>Date of Birth</span>
+            <span>Current Classroom</span>
+            <span>Days Attending</span>
+          </div>
+          <div className="grid grid-cols-4 px-3 py-2 text-slate-600">
+            <span>Avery Johnson</span>
+            <span>2019-03-14</span>
+            <span>Pre-K</span>
+            <span>M,W,F</span>
+          </div>
+        </div>
+      </div>
 
       <div className="mt-6">
         <label
@@ -210,24 +227,6 @@ export function UploadForm() {
           {status.message}
         </div>
       )}
-
-      <div className="mt-6 rounded-xl bg-slate-100 px-4 py-3 text-xs text-slate-600">
-        <p className="font-semibold text-slate-900">Required columns:</p>
-        <div className="mt-4 overflow-hidden rounded-lg border border-slate-200 bg-white text-left text-[11px] sm:text-xs">
-          <div className="grid grid-cols-4 bg-slate-50 px-3 py-2 font-semibold text-slate-700">
-            <span>Child Name</span>
-            <span>Date of Birth</span>
-            <span>Current Classroom</span>
-            <span>Days Attending</span>
-          </div>
-          <div className="grid grid-cols-4 px-3 py-2 text-slate-600">
-            <span>Avery Johnson</span>
-            <span>2019-03-14</span>
-            <span>Pre-K</span>
-            <span>M,W,F</span>
-          </div>
-        </div>
-      </div>
     </form>
   );
 }
