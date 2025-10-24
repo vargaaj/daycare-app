@@ -1,33 +1,42 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { read, utils } from 'xlsx';
+import type { UploadSuccessCounts } from '@/types/upload';
 
 const requiredColumns = [
-  'Child Name',
-  'Date of Birth',
-  'Current Classroom',
-  'Schedule (Ex: M,W,F)',
-];
+  'First Name',
+  'Last Name',
+  'Classroom',
+  'Dob',
+  'Schedule',
+] as const;
 
-type StatusState = {
-  type: 'success' | 'error';
-  message: string;
-};
+type StatusState =
+  | {
+      type: 'success';
+      message: string;
+      counts: UploadSuccessCounts;
+      filePath: string;
+    }
+  | { type: 'error'; message: string };
 
 export function UploadForm() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [status, setStatus] = useState<StatusState | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const resetStatus = () => setStatus(null);
+  const resetFileInput = () => {
+    setSelectedFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
 
   const handleFileSelection = (file: File | null) => {
     setSelectedFile(file);
-    if (file) {
-      resetStatus();
-    }
+    setStatus(null);
   };
 
   const onInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -35,50 +44,15 @@ export function UploadForm() {
     handleFileSelection(file);
   };
 
-  const validateFile = async (file: File) => {
+  const validateFileType = (file: File) => {
     if (!file.name.toLowerCase().endsWith('.xlsx')) {
       setStatus({
         type: 'error',
         message: 'Only .xlsx files are supported.',
       });
-      return;
+      return false;
     }
-
-    try {
-      const buffer = await file.arrayBuffer();
-      const workbook = read(buffer, { type: 'array' });
-      const sheet = workbook.Sheets[workbook.SheetNames[0]];
-
-      const rows = utils.sheet_to_json<unknown[]>(sheet, {
-        header: 1,
-        blankrows: false,
-      }) as (string | undefined)[][];
-
-      const headers =
-        rows[0]?.map((cell) => (typeof cell === 'string' ? cell.trim() : '')) ??
-        [];
-
-      const missingColumns = requiredColumns.filter(
-        (column) => !headers.includes(column)
-      );
-
-      if (missingColumns.length > 0) {
-        setStatus({
-          type: 'error',
-          message: `Missing columns: ${missingColumns.join(', ')}`,
-        });
-        return;
-      }
-
-      setStatus({ type: 'success', message: 'File uploaded successfully!' });
-    } catch (error) {
-      setStatus({
-        type: 'error',
-        message:
-          'We could not read that file. Please check the format and try again.',
-      });
-      console.error('Upload validation error:', error);
-    }
+    return true;
   };
 
   const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -92,7 +66,56 @@ export function UploadForm() {
       return;
     }
 
-    await validateFile(selectedFile);
+    if (!validateFileType(selectedFile)) {
+      return;
+    }
+
+    setIsUploading(true);
+    setStatus(null);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+
+      const response = await fetch('/upload/api', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = (await response.json().catch(() => null)) as
+        | { success: true; filePath: string; counts: UploadSuccessCounts }
+        | { success: false; error?: string }
+        | null;
+
+      console.log(data);
+
+      if (!response.ok || !data || data.success !== true) {
+        const message =
+          (data && 'error' in data && data.error) ||
+          'We could not process your upload. Please try again.';
+        throw new Error(message);
+      }
+
+      setStatus({
+        type: 'success',
+        message:
+          'Upload complete! Your classrooms and assignments are updated.',
+        counts: data.counts,
+        filePath: data.filePath,
+      });
+      resetFileInput();
+    } catch (error) {
+      console.error('Upload error:', error);
+      setStatus({
+        type: 'error',
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Something went wrong during the upload.',
+      });
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const onDrop = (event: React.DragEvent<HTMLLabelElement>) => {
@@ -118,32 +141,16 @@ export function UploadForm() {
   return (
     <form
       onSubmit={onSubmit}
-      className="mx-auto w-full max-w-lg rounded-2xl bg-white p-6 shadow-md"
+      className="mx-auto w-full max-w-xl rounded-2xl bg-white p-6 shadow-md"
     >
       <h1 className="text-2xl font-semibold text-slate-900">
         Upload Classroom Data
       </h1>
       <p className="mt-2 text-sm text-slate-600">
-        Upload your current classroom spreadsheet so we can validate it before
-        optimization.
+        Upload your daycare roster as an Excel spreadsheet. We&apos;ll store the
+        file securely and sync children, classrooms, and assignments for this
+        month.
       </p>
-      <div className="mt-6 rounded-xl bg-slate-100 px-4 py-3 text-xs text-slate-600">
-        <p className="font-semibold text-slate-900">Required columns:</p>
-        <div className="mt-4 overflow-hidden rounded-lg border border-slate-200 bg-white text-left text-[11px] sm:text-xs">
-          <div className="grid grid-cols-4 bg-slate-50 px-3 py-2 font-semibold text-slate-700">
-            <span>Child Name</span>
-            <span>Date of Birth</span>
-            <span>Current Classroom</span>
-            <span>Days Attending</span>
-          </div>
-          <div className="grid grid-cols-4 px-3 py-2 text-slate-600">
-            <span>Avery Johnson</span>
-            <span>2019-03-14</span>
-            <span>Pre-K</span>
-            <span>M,W,F</span>
-          </div>
-        </div>
-      </div>
 
       <div className="mt-6">
         <label
@@ -199,9 +206,10 @@ export function UploadForm() {
 
       <button
         type="submit"
-        className="mt-6 w-full rounded-full bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700"
+        className="mt-6 w-full rounded-full bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-indigo-300"
+        disabled={!selectedFile || isUploading}
       >
-        Validate & Upload
+        {isUploading ? 'Uploading...' : 'Upload Spreadsheet'}
       </button>
 
       <div className="mt-4 text-sm text-slate-600">
@@ -224,9 +232,38 @@ export function UploadForm() {
               : 'border-rose-200 bg-rose-50 text-rose-700'
           }`}
         >
-          {status.message}
+          <p className="font-semibold">{status.message}</p>
+          {status.type === 'success' ? (
+            <div className="mt-3 space-y-1 text-xs text-emerald-700">
+              <p>Stored file path: {status.filePath}</p>
+              <p>
+                {' '}
+                | Children added: {status.counts.childrenCreated} | Children
+                reused: {status.counts.childrenReused} | Assignments processed:{' '}
+                {status.counts.assignmentsProcessed}
+              </p>
+            </div>
+          ) : null}
         </div>
       )}
+
+      <div className="mt-6 rounded-xl bg-slate-100 px-4 py-3 text-xs text-slate-600">
+        <p className="font-semibold text-slate-900">Required columns:</p>
+        <div className="mt-4 overflow-hidden rounded-lg border border-slate-200 bg-white text-left text-[11px] sm:text-xs">
+          <div className="grid grid-cols-5 bg-slate-50 px-3 py-2 font-semibold text-slate-700">
+            {requiredColumns.map((column) => (
+              <span key={column}>{column}</span>
+            ))}
+          </div>
+          <div className="grid grid-cols-5 px-3 py-2 text-slate-600">
+            <span>Avery</span>
+            <span>Johnson</span>
+            <span>Toddlers</span>
+            <span>2019-03-14</span>
+            <span>Mon-Fri 8am-4pm</span>
+          </div>
+        </div>
+      </div>
     </form>
   );
 }

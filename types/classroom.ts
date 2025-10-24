@@ -2,6 +2,14 @@ export type ClassroomFormValues = {
   name: string;
   ageRange: string;
   capacity: string;
+  id?: string;
+};
+
+export type ClassroomRecord = {
+  id: string;
+  name: string;
+  age_range: string | null;
+  capacity: number | null;
 };
 
 export type ClassroomSubmission = {
@@ -13,4 +21,3 @@ export type ClassroomSubmission = {
 export type ClassroomRequestPayload = {
   classrooms: ClassroomSubmission[];
 };
-

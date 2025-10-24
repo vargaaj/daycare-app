@@ -1,12 +1,11 @@
 import { NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs/server';
+import { auth, currentUser } from '@clerk/nextjs/server';
 import type {
+  ClassroomRecord,
   ClassroomRequestPayload,
   ClassroomSubmission,
 } from '@/types/classroom';
-
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+import { getSupabaseAdminClient } from '@/lib/supabaseAdmin';
 
 const isValidPayload = (
   payload: unknown
@@ -50,12 +49,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-    return NextResponse.json(
-      { error: 'Supabase credentials are not configured.' },
-      { status: 500 }
-    );
-  }
+  const supabase = getSupabaseAdminClient();
 
   let body: unknown;
   try {
@@ -78,39 +72,81 @@ export async function POST(request: Request) {
     capacity: classroom.capacity,
   }));
 
-  try {
-    const supabaseResponse = await fetch(
-      `${SUPABASE_URL}/rest/v1/classroom_info`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          apikey: SUPABASE_SERVICE_ROLE_KEY,
-          Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-          Prefer: 'return=minimal',
-        },
-        body: JSON.stringify(rows),
-      }
-    );
+  const { error } = await supabase.from('classrooms').insert(rows);
 
-    if (!supabaseResponse.ok) {
-      const errorText = await supabaseResponse.text();
-      return NextResponse.json(
-        {
-          error:
-            errorText ||
-            'Supabase refused the request. Please try again or contact support.',
-        },
-        { status: 502 }
-      );
-    }
-  } catch (error) {
+  if (error) {
     console.error('Supabase request failed', error);
     return NextResponse.json(
-      { error: 'Unable to reach Supabase at the moment.' },
+      {
+        error:
+          'We could not save your classrooms right now. Please try again in a moment.',
+      },
       { status: 502 }
     );
   }
 
   return NextResponse.json({ success: true }, { status: 201 });
+}
+
+export async function GET() {
+  const user = await currentUser();
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const supabase = getSupabaseAdminClient();
+
+  const { data, error } = await supabase
+    .from('classrooms')
+    .select('id, name, age_range, capacity')
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    console.error('Failed to load classrooms', error);
+    return NextResponse.json(
+      { error: 'Failed to load classrooms.' },
+      { status: 500 }
+    );
+  }
+
+  return NextResponse.json({
+    classrooms: (data ?? []) as ClassroomRecord[],
+  });
+}
+
+export async function DELETE(request: Request) {
+  const user = await auth();
+  const userId = user.userId;
+  if (!userId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const { searchParams } = new URL(request.url);
+  const classroomId = searchParams.get('id');
+
+  if (!classroomId) {
+    return NextResponse.json(
+      { error: 'Missing classroom identifier.' },
+      { status: 400 }
+    );
+  }
+
+  const supabase = getSupabaseAdminClient();
+
+  const { error } = await supabase
+    .from('classrooms')
+    .delete()
+    .eq('id', classroomId)
+    .eq('user_id', userId);
+
+  if (error) {
+    console.error('Failed to delete classroom', error);
+    return NextResponse.json(
+      { error: 'We could not remove that classroom. Please try again later.' },
+      { status: 500 }
+    );
+  }
+
+  return NextResponse.json({ success: true });
 }

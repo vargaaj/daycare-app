@@ -1,8 +1,11 @@
 'use client';
 
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useMemo, useState } from 'react';
-import type { ClassroomFormValues } from '@/types/classroom';
+import type {
+  ClassroomFormValues,
+  ClassroomRecord,
+} from '@/types/classroom';
 
 const ageRangePattern = /^\s*(\d+)\s*[-\u2013]\s*(\d+)/;
 
@@ -19,6 +22,7 @@ const isValidAgeRange = (value: string) => {
 };
 
 const emptyClassroom: ClassroomFormValues = {
+  id: undefined,
   name: '',
   ageRange: '',
   capacity: '',
@@ -29,8 +33,51 @@ export function ClassroomConfigurationForm() {
   const [classrooms, setClassrooms] = useState<ClassroomFormValues[]>([
     { ...emptyClassroom },
   ]);
+  const [isLoading, setIsLoading] = useState(true);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [removingIndex, setRemovingIndex] = useState<number | null>(null);
+
+  useEffect(() => {
+    const fetchExistingClassrooms = async () => {
+      try {
+        const response = await fetch('/configure/api/classrooms', {
+          method: 'GET',
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to load existing classrooms.');
+        }
+
+        const data = (await response.json()) as {
+          classrooms: ClassroomRecord[];
+        };
+
+        if (Array.isArray(data.classrooms) && data.classrooms.length > 0) {
+          setClassrooms(
+            data.classrooms.map((classroom) => ({
+              id: classroom.id,
+              name: classroom.name ?? '',
+              ageRange: classroom.age_range ?? '',
+              capacity:
+                typeof classroom.capacity === 'number'
+                  ? classroom.capacity.toString()
+                  : '',
+            }))
+          );
+        }
+      } catch (error) {
+        console.error('Failed to load existing classrooms', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchExistingClassrooms().catch((error) => {
+      console.error('Unexpected error loading classrooms', error);
+      setIsLoading(false);
+    });
+  }, []);
 
   const updateClassroom =
     (index: number, field: keyof ClassroomFormValues) =>
@@ -50,8 +97,48 @@ export function ClassroomConfigurationForm() {
     setClassrooms((prev) => [...prev, { ...emptyClassroom }]);
   };
 
-  const removeClassroom = (index: number) => () => {
-    setClassrooms((prev) => prev.filter((_, idx) => idx !== index));
+  const removeClassroom = (index: number) => async () => {
+    const classroom = classrooms[index];
+    if (!classroom) {
+      return;
+    }
+
+    if (classroom.id) {
+      setRemovingIndex(index);
+      try {
+        const response = await fetch(
+          `/configure/api/classrooms?id=${classroom.id}`,
+          {
+            method: 'DELETE',
+          }
+        );
+
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw new Error(
+            typeof body?.error === 'string'
+              ? body.error
+              : 'We could not remove that classroom right now.'
+          );
+        }
+      } catch (error) {
+        console.error('Failed to delete classroom', error);
+        setSubmissionError(
+          error instanceof Error
+            ? error.message
+            : 'We could not remove that classroom right now.'
+        );
+        setRemovingIndex(null);
+        return;
+      }
+    }
+
+    setClassrooms((prev) => {
+      const next = prev.filter((_, idx) => idx !== index);
+      return next.length > 0 ? next : [{ ...emptyClassroom }];
+    });
+    setSubmissionError(null);
+    setRemovingIndex(null);
   };
 
   const isFormValid = useMemo(
@@ -124,6 +211,11 @@ export function ClassroomConfigurationForm() {
       onSubmit={onSubmit}
       className="mx-auto w-full max-w-4xl rounded-2xl bg-white p-8 shadow-lg ring-1 ring-black/5"
     >
+      {isLoading ? (
+        <div className="mb-8 text-center text-sm text-slate-500">
+          Loading your classrooms...
+        </div>
+      ) : null}
       <header className="text-center">
         <h1 className="text-3xl font-semibold text-slate-900 sm:text-4xl">
           Configure Your Classrooms
@@ -137,20 +229,23 @@ export function ClassroomConfigurationForm() {
       <div className="mt-8 space-y-6">
         {classrooms.map((classroom, index) => (
           <div
-            key={`classroom-${index}`}
+            key={classroom.id ?? `classroom-${index}`}
             className="rounded-xl border border-slate-200 bg-slate-50/80 p-6"
           >
             <div className="flex items-baseline justify-between">
               <h2 className="text-lg font-semibold text-slate-900">
                 Classroom {index + 1}
               </h2>
-              {classrooms.length > 1 ? (
+              {classrooms.length > 1 || classroom.id ? (
                 <button
                   type="button"
                   onClick={removeClassroom(index)}
-                  className="text-xs font-medium text-rose-600 transition hover:text-rose-700"
+                  className="text-xs font-medium text-rose-600 transition hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={
+                    isSubmitting || removingIndex === index
+                  }
                 >
-                  Remove
+                  {removingIndex === index ? 'Removing…' : 'Remove'}
                 </button>
               ) : null}
             </div>
