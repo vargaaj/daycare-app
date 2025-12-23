@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import type { UploadSuccessCounts } from '@/types/upload';
 
 const requiredColumns = [
@@ -26,6 +27,7 @@ export function UploadForm() {
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const router = useRouter();
 
   const resetFileInput = () => {
     setSelectedFile(null);
@@ -104,6 +106,7 @@ export function UploadForm() {
         filePath: data.filePath,
       });
       resetFileInput();
+      router.push('/dashboard');
     } catch (error) {
       console.error('Upload error:', error);
       setStatus({
@@ -260,7 +263,7 @@ export function UploadForm() {
             <span>Johnson</span>
             <span>Toddlers</span>
             <span>2019-03-14</span>
-            <span>Mon-Fri 8am-4pm</span>
+            <span>M,W,Th,F</span>
           </div>
         </div>
       </div>

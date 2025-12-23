@@ -34,43 +34,74 @@ export function Hero() {
         </div>
       </div>
       <div className="relative flex-1">
-        <div className="relative overflow-hidden rounded-3xl border border-indigo-100 bg-gradient-to-br from-indigo-400 via-indigo-300 to-indigo-200 px-8 py-14 shadow-xl">
-          <div className="absolute -top-6 -left-6 h-24 w-24 rounded-full bg-white/35 blur-2xl" />
-          <div className="absolute -bottom-10 -right-8 h-32 w-32 rounded-full bg-white/40 blur-3xl" />
-          <div className="relative space-y-6 text-white">
-            <div className="flex items-center gap-4">
-              <span className="h-12 w-12 rounded-full bg-white/25" />
-              <div>
-                <p className="text-sm uppercase tracking-widest text-white/70">
-                  Preview
-                </p>
-                <p className="text-lg font-semibold">Class Utilization</p>
-              </div>
+        <div className="relative overflow-hidden rounded-3xl border border-indigo-100 bg-gradient-to-br from-indigo-200 via-indigo-100 to-slate-50 px-6 py-10 shadow-xl sm:px-8">
+          <div className="absolute -top-8 -right-10 h-32 w-32 rounded-full bg-white/60 blur-3xl" />
+          <div className="absolute -bottom-10 -left-8 h-32 w-32 rounded-full bg-indigo-200/50 blur-3xl" />
+          <div className="relative rounded-2xl border border-slate-200 bg-white/95 p-5 shadow-lg sm:p-6">
+            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+              Dashboard Highlights
+            </p>
+            <h3 className="mt-2 text-2xl font-semibold text-slate-900">
+              Everything you need, month by month
+            </h3>
+            <p className="mt-3 text-sm text-slate-600">
+              A single view that keeps staffing, capacity, and classroom changes
+              crystal clear.
+            </p>
+            <div className="mt-6 space-y-3 text-sm text-slate-600">
+              {[
+                {
+                  title: 'Per-day capacity grid',
+                  detail: 'See exactly how many seats are open each weekday.',
+                },
+                {
+                  title: 'Classroom-by-classroom rosters',
+                  detail: 'Filter by month and room to spot gaps instantly.',
+                },
+                {
+                  title: 'Inline schedule edits',
+                  detail: 'Adjust days without losing context or data.',
+                },
+                {
+                  title: 'Future month projections',
+                  detail: 'Plan through the school year with confidence.',
+                },
+              ].map((item) => (
+                <div
+                  key={item.title}
+                  className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3"
+                >
+                  <span className="mt-1 h-2.5 w-2.5 rounded-full bg-indigo-500" />
+                  <div>
+                    <p className="font-semibold text-slate-900">
+                      {item.title}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-600">
+                      {item.detail}
+                    </p>
+                  </div>
+                </div>
+              ))}
             </div>
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div className="rounded-2xl bg-white/20 p-4">
-                <p className="text-xs uppercase tracking-wide text-white/70">
-                  Age Group
-                </p>
-                <p className="mt-2 text-lg font-semibold">2-3 Years</p>
-                <p className="mt-4 text-xs text-white/70">90% capacity</p>
-              </div>
-              <div className="rounded-2xl bg-white/20 p-4">
-                <p className="text-xs uppercase tracking-wide text-white/70">
-                  Age Group
-                </p>
-                <p className="mt-2 text-lg font-semibold">4-5 Years</p>
-                <p className="mt-4 text-xs text-white/70">Optimum staffing</p>
-              </div>
-              <div className="col-span-2 rounded-2xl bg-white/15 p-4">
-                <p className="text-xs uppercase tracking-wide text-white/70">
-                  Monthly Snapshot
-                </p>
-                <p className="mt-2 text-sm leading-relaxed">
-                  See staffing allocations, ratios, and classroom adjustments at
-                  a glance for every month of the year.
-                </p>
-              </div>
+            <div className="mt-6 grid grid-cols-2 gap-3 text-xs">
+              {[
+                { label: 'Auto optimization', value: 'Future months' },
+                { label: 'Safeguards', value: 'Capacity + ages' },
+                { label: 'Audit-ready', value: 'Monthly history' },
+                { label: 'Save changes', value: 'One click' },
+              ].map((item) => (
+                <div
+                  key={item.label}
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2"
+                >
+                  <p className="text-[10px] uppercase tracking-widest text-slate-400">
+                    {item.label}
+                  </p>
+                  <p className="mt-1 text-xs font-semibold text-slate-700">
+                    {item.value}
+                  </p>
+                </div>
+              ))}
             </div>
           </div>
         </div>

@@ -247,24 +247,32 @@ export async function POST(request: Request) {
     );
   }
 
-  const { data: existingChildren, error: childrenSelectError } = await supabase
-    .from('children')
-    .select('id, first_name, last_name, dob')
+  // Fresh overwrite: remove existing assignments and children for this user
+  const { error: deleteAssignmentsError } = await supabase
+    .from('classroom_assignments')
+    .delete()
     .eq('user_id', userId);
-
-  if (childrenSelectError) {
+  if (deleteAssignmentsError) {
+    console.error('Failed to delete existing assignments', deleteAssignmentsError);
     return errorResponse(
-      'Failed to load existing children. Please try again.',
+      'Failed to reset your previous assignments. Please try again.',
       500
     );
   }
 
-  const childMap = new Map<string, string>();
-  existingChildren?.forEach((child) => {
-    const key = buildChildKey(child.first_name, child.last_name, child.dob);
-    childMap.set(key, child.id);
-  });
+  const { error: deleteChildrenError } = await supabase
+    .from('children')
+    .delete()
+    .eq('user_id', userId);
+  if (deleteChildrenError) {
+    console.error('Failed to delete existing children', deleteChildrenError);
+    return errorResponse(
+      'Failed to reset your previous children. Please try again.',
+      500
+    );
+  }
 
+  // Deduplicate children within the upload
   const uniqueChildEntries = new Map<string, WorksheetChildRow>();
   rows.forEach((row) => {
     uniqueChildEntries.set(
@@ -273,38 +281,36 @@ export async function POST(request: Request) {
     );
   });
 
-  const newChildrenPayload = Array.from(uniqueChildEntries.entries())
-    .filter(([key]) => !childMap.has(key))
-    .map(([, row]) => ({
+  const newChildrenPayload = Array.from(uniqueChildEntries.values()).map(
+    (row) => ({
       user_id: userId,
       first_name: row.firstName,
       last_name: row.lastName,
       dob: row.dob,
-    }));
+    })
+  );
 
-  let childrenCreated = 0;
+  const { data: insertedChildren, error: insertChildrenError } = await supabase
+    .from('children')
+    .insert(newChildrenPayload)
+    .select('id, first_name, last_name, dob');
 
-  if (newChildrenPayload.length > 0) {
-    const { data: insertedChildren, error } = await supabase
-      .from('children')
-      .insert(newChildrenPayload)
-      .select('id, first_name, last_name, dob');
-
-    if (error) {
-      return errorResponse(
-        'Failed to create child records. Please try again.',
-        500
-      );
-    }
-
-    insertedChildren.forEach((child) => {
-      const key = buildChildKey(child.first_name, child.last_name, child.dob);
-      childMap.set(key, child.id);
-    });
-    childrenCreated = insertedChildren.length;
+  if (insertChildrenError) {
+    console.error('Failed to create child records', insertChildrenError);
+    return errorResponse(
+      'Failed to create child records. Please try again.',
+      500
+    );
   }
 
-  const childrenReused = uniqueChildEntries.size - childrenCreated;
+  const childMap = new Map<string, string>();
+  insertedChildren?.forEach((child) => {
+    const key = buildChildKey(child.first_name, child.last_name, child.dob);
+    childMap.set(key, child.id);
+  });
+
+  const childrenCreated = insertedChildren?.length ?? 0;
+  const childrenReused = 0;
 
   const currentMonth = new Date();
   const monthDate = new Date(
@@ -338,30 +344,6 @@ export async function POST(request: Request) {
   let assignmentsProcessed = 0;
 
   if (assignmentsPayload.length > 0) {
-    const childIds = Array.from(
-      new Set(assignmentsPayload.map((assignment) => assignment.child_id))
-    );
-
-    if (childIds.length > 0) {
-      const { error: deleteError } = await supabase
-        .from('classroom_assignments')
-        .delete()
-        .eq('user_id', userId)
-        .eq('month', monthISO)
-        .in('child_id', childIds);
-
-      if (deleteError) {
-        console.error(
-          'Failed to clear existing classroom assignments',
-          deleteError
-        );
-        return errorResponse(
-          'Failed to prepare classroom assignments. Please try again.',
-          500
-        );
-      }
-    }
-
     const { data: insertedAssignments, error: insertError } = await supabase
       .from('classroom_assignments')
       .insert(assignmentsPayload)
@@ -385,9 +367,20 @@ export async function POST(request: Request) {
     assignmentsProcessed,
   };
 
+  // Trigger optimization for future months (current month stays frozen)
+  try {
+    const { optimizeFutureClassrooms } = await import(
+      '@/lib/optimization/optimizeClassrooms'
+    );
+    await optimizeFutureClassrooms(supabase, userId ?? '');
+  } catch (error) {
+    console.error('Failed to run optimization after upload', error);
+  }
+
   return successResponse({
     success: true,
     filePath: storagePath,
     counts,
   });
 }
+
