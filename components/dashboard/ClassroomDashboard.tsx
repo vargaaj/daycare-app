@@ -116,14 +116,6 @@ const parseScheduleDays = (schedule: string | null | undefined): DayKey[] => {
   return Array.from(result);
 };
 
-const formatDays = (days: DayKey[], raw: string | null | undefined) => {
-  if (days.length > 0) {
-    const order = DAY_KEYS.filter((d) => days.includes(d));
-    return order.join(', ');
-  }
-  return raw && raw.trim().length > 0 ? raw : '—';
-};
-
 const ageInMonthsOn = (dobISO: string, monthKey: string) => {
   const dob = new Date(dobISO);
   const target = parseMonthKey(monthKey);
@@ -273,7 +265,6 @@ export function ClassroomDashboard({ data }: Props) {
         daysSummary[a.classroomId ?? ''][d] += 1;
       });
     });
-    // eslint-disable-next-line no-console
     console.log('Dashboard enrollment summary', {
       month: selectedMonth,
       classroomId: selectedClassroomId,
@@ -282,7 +273,10 @@ export function ClassroomDashboard({ data }: Props) {
     });
   }, [assignmentsByMonth, selectedClassroomId, selectedMonth]);
 
-  const currentMonthAssignments = assignmentsByMonth[selectedMonth] ?? [];
+  const currentMonthAssignments = useMemo(
+    () => assignmentsByMonth[selectedMonth] ?? [],
+    [assignmentsByMonth, selectedMonth]
+  );
 
   const classroomAssignments = useMemo(
     () =>
@@ -302,12 +296,13 @@ export function ClassroomDashboard({ data }: Props) {
   const dayCountsByClassroom = useMemo(() => {
     const counts: Record<string, Record<DayKey, number>> = {};
     currentMonthAssignments.forEach((a) => {
-      if (!a.classroomId) return;
-      if (!counts[a.classroomId]) {
-        counts[a.classroomId] = { M: 0, T: 0, W: 0, Th: 0, F: 0 };
+      const classroomId = a.classroomId;
+      if (!classroomId) return;
+      if (!counts[classroomId]) {
+        counts[classroomId] = { M: 0, T: 0, W: 0, Th: 0, F: 0 };
       }
       a.days.forEach((d) => {
-        counts[a.classroomId ?? -1][d] += 1;
+        counts[classroomId][d] += 1;
       });
     });
     return counts;
@@ -500,7 +495,6 @@ export function ClassroomDashboard({ data }: Props) {
         router.refresh();
       })
       .catch((error) => {
-        // eslint-disable-next-line no-console
         console.error('Save failed', error);
         alert(
           'Failed to save changes: ' +

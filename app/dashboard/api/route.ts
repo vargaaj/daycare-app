@@ -19,13 +19,6 @@ type IncomingNewChild = {
   days: DayKey[];
 };
 
-type ClassroomRow = {
-  id: string;
-  name: string;
-  age_range: string | null;
-  capacity: number | null;
-};
-
 type ChildRow = {
   id: string;
   dob: string;
@@ -47,45 +40,46 @@ type AssignmentInsert = {
 
 const DAY_KEYS: DayKey[] = ['M', 'T', 'W', 'Th', 'F'];
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
 const isDayKeyArray = (value: unknown): value is DayKey[] =>
   Array.isArray(value) && value.every((v) => DAY_KEYS.includes(v as DayKey));
 
 const isValidPayload = (
-  body: any
+  body: unknown
 ): body is {
   month: string;
   assignments: IncomingAssignment[];
   newChildren?: IncomingNewChild[];
 } => {
-  if (!body || typeof body !== 'object') return false;
-  if (
-    typeof body.month !== 'string' ||
-    !body.month.match(/^\d{4}-\d{2}-\d{2}$/)
-  )
+  if (!isRecord(body)) return false;
+  if (typeof body.month !== 'string' || !body.month.match(/^\d{4}-\d{2}-\d{2}$/)) {
     return false;
+  }
   if (!Array.isArray(body.assignments)) return false;
-  const validAssignments = body.assignments.every(
-    (a) =>
-      a &&
-      typeof a === 'object' &&
+  const validAssignments = body.assignments.every((a) => {
+    if (!isRecord(a)) return false;
+    return (
       typeof a.childId === 'string' &&
       (typeof a.classroomId === 'string' || a.classroomId === null) &&
       isDayKeyArray(a.days)
-  );
+    );
+  });
   if (!validAssignments) return false;
   if (body.newChildren) {
     if (!Array.isArray(body.newChildren)) return false;
-    const validNew = body.newChildren.every(
-      (c) =>
-        c &&
-        typeof c === 'object' &&
+    const validNew = body.newChildren.every((c) => {
+      if (!isRecord(c)) return false;
+      return (
         typeof c.tempId === 'string' &&
         typeof c.firstName === 'string' &&
         typeof c.lastName === 'string' &&
         typeof c.dob === 'string' &&
         (typeof c.classroomId === 'string' || c.classroomId === null) &&
         isDayKeyArray(c.days)
-    );
+      );
+    });
     if (!validNew) return false;
   }
   return true;
@@ -364,7 +358,6 @@ export async function POST(request: Request) {
   ]);
 
   if (childIdsToProject.size > 0) {
-    // eslint-disable-next-line no-console
     console.log('Projecting updated children', {
       month,
       changedChildIds: Array.from(changedChildIds),

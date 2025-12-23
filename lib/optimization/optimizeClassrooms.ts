@@ -36,12 +36,7 @@ type AssignmentInsert = {
   user_id: string;
 };
 
-const DAY_KEYS: DayKey[] = ['M', 'T', 'W', 'Th', 'F'];
-
 const pad = (value: number) => value.toString().padStart(2, '0');
-
-const firstOfMonthKey = (date: Date) =>
-  `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 
 const parseMonthKey = (key: string) => {
   const [yearStr, monthStr] = key.split('-');
@@ -485,18 +480,18 @@ export async function optimizeFutureClassrooms(
       });
 
       // Debug log: show enrollment per classroom/day for this month
-      // eslint-disable-next-line no-console
       console.log(
         'Month enrollment summary',
         month,
         guardedResults.reduce((acc, r) => {
-          if (!r.classroom_id) return acc;
+          const classroomId = r.classroom_id;
+          if (!classroomId) return acc;
           const daysList = parseScheduleDays(r.schedule);
-          if (!acc[r.classroom_id]) {
-            acc[r.classroom_id] = { M: 0, T: 0, W: 0, Th: 0, F: 0 };
+          if (!acc[classroomId]) {
+            acc[classroomId] = { M: 0, T: 0, W: 0, Th: 0, F: 0 };
           }
           daysList.forEach((d) => {
-            acc[r.classroom_id ?? ''][d] += 1;
+            acc[classroomId][d] += 1;
           });
           return acc;
         }, {} as Record<string, Record<DayKey, number>>)
