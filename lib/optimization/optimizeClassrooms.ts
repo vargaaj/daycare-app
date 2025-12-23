@@ -480,22 +480,22 @@ export async function optimizeFutureClassrooms(
       });
 
       // Debug log: show enrollment per classroom/day for this month
-      console.log(
-        'Month enrollment summary',
-        month,
-        guardedResults.reduce((acc, r) => {
-          const classroomId = r.classroom_id;
-          if (!classroomId) return acc;
-          const daysList = parseScheduleDays(r.schedule);
-          if (!acc[classroomId]) {
-            acc[classroomId] = { M: 0, T: 0, W: 0, Th: 0, F: 0 };
-          }
-          daysList.forEach((d) => {
-            acc[classroomId][d] += 1;
-          });
-          return acc;
-        }, {} as Record<string, Record<DayKey, number>>)
-      );
+      // console.log(
+      //   'Month enrollment summary',
+      //   month,
+      //   guardedResults.reduce((acc, r) => {
+      //     const classroomId = r.classroom_id;
+      //     if (!classroomId) return acc;
+      //     const daysList = parseScheduleDays(r.schedule);
+      //     if (!acc[classroomId]) {
+      //       acc[classroomId] = { M: 0, T: 0, W: 0, Th: 0, F: 0 };
+      //     }
+      //     daysList.forEach((d) => {
+      //       acc[classroomId][d] += 1;
+      //     });
+      //     return acc;
+      //   }, {} as Record<string, Record<DayKey, number>>)
+      // );
 
       const { error: insertError } = await supabase
         .from('classroom_assignments')

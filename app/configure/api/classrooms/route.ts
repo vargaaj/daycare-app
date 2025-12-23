@@ -29,7 +29,7 @@ const isValidPayload = (
       return false;
     }
 
-    const { name, age_range, capacity } = classroom as ClassroomSubmission;
+    const { id, name, age_range, capacity } = classroom as ClassroomSubmission;
 
     return (
       typeof name === 'string' &&
@@ -37,7 +37,9 @@ const isValidPayload = (
       typeof age_range === 'string' &&
       age_range.trim().length > 0 &&
       Number.isInteger(capacity) &&
-      capacity > 0
+      capacity > 0 &&
+      (typeof id === 'undefined' ||
+        (typeof id === 'string' && id.trim().length > 0))
     );
   });
 };
@@ -66,23 +68,58 @@ export async function POST(request: Request) {
   }
 
   const rows = body.classrooms.map((classroom) => ({
-    user_id: userId,
+    id: classroom.id?.trim(),
     name: classroom.name.trim(),
     age_range: classroom.age_range.trim(),
     capacity: classroom.capacity,
   }));
 
-  const { error } = await supabase.from('classrooms').insert(rows);
+  for (const row of rows) {
+    if (!row.id) continue;
+    const { error } = await supabase
+      .from('classrooms')
+      .update({
+        name: row.name,
+        age_range: row.age_range,
+        capacity: row.capacity,
+      })
+      .eq('id', row.id)
+      .eq('user_id', userId);
 
-  if (error) {
-    console.error('Supabase request failed', error);
-    return NextResponse.json(
-      {
-        error:
-          'We could not save your classrooms right now. Please try again in a moment.',
-      },
-      { status: 502 }
-    );
+    if (error) {
+      console.error('Supabase request failed', error);
+      return NextResponse.json(
+        {
+          error:
+            'We could not save your classrooms right now. Please try again in a moment.',
+        },
+        { status: 502 }
+      );
+    }
+  }
+
+  const inserts = rows
+    .filter((row) => !row.id)
+    .map((row) => ({
+      user_id: userId,
+      name: row.name,
+      age_range: row.age_range,
+      capacity: row.capacity,
+    }));
+
+  if (inserts.length > 0) {
+    const { error } = await supabase.from('classrooms').insert(inserts);
+
+    if (error) {
+      console.error('Supabase request failed', error);
+      return NextResponse.json(
+        {
+          error:
+            'We could not save your classrooms right now. Please try again in a moment.',
+        },
+        { status: 502 }
+      );
+    }
   }
 
   return NextResponse.json({ success: true }, { status: 201 });

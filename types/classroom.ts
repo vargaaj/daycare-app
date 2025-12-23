@@ -13,6 +13,7 @@ export type ClassroomRecord = {
 };
 
 export type ClassroomSubmission = {
+  id?: string;
   name: string;
   age_range: string;
   capacity: number;

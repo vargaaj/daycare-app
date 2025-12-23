@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 type Classroom = {
@@ -135,8 +135,22 @@ export function ClassroomDashboard({ data }: Props) {
     firstOfMonthKey(new Date())
   );
 
+  const assignmentMonths = useMemo(() => {
+    const months = data.assignments.map((a) =>
+      monthKeyFor(parseMonthKey(a.month))
+    );
+    return Array.from(new Set(months)).sort();
+  }, [data.assignments]);
+
+  const baseMonthKey = useMemo(() => {
+    if (assignmentMonths.length === 0) return currentMonthKey;
+    return assignmentMonths[0] > currentMonthKey
+      ? assignmentMonths[0]
+      : currentMonthKey;
+  }, [assignmentMonths, currentMonthKey]);
+
   const monthOptions = useMemo(() => {
-    const start = parseMonthKey(currentMonthKey);
+    const start = parseMonthKey(baseMonthKey);
     const startYear = start.getFullYear();
     const startMonth = start.getMonth(); // 0-based
     const finalYear = startMonth >= 8 ? startYear + 1 : startYear; // Sep (8) or later -> next year's August
@@ -150,7 +164,7 @@ export function ClassroomDashboard({ data }: Props) {
       cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
     }
     return options;
-  }, [currentMonthKey]);
+  }, [baseMonthKey]);
 
   const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthKey);
 
@@ -159,13 +173,12 @@ export function ClassroomDashboard({ data }: Props) {
     const clientMonth = firstOfMonthKey(new Date());
     if (clientMonth !== currentMonthKey) {
       setCurrentMonthKey(clientMonth);
-      setSelectedMonth(clientMonth);
       return;
     }
     setSelectedMonth(
-      (prev) => monthOptions.find((m) => m.key === prev)?.key ?? clientMonth
+      (prev) => monthOptions.find((m) => m.key === prev)?.key ?? baseMonthKey
     );
-  }, [currentMonthKey, monthOptions]);
+  }, [currentMonthKey, monthOptions, baseMonthKey]);
   const [classrooms, setClassrooms] = useState<Classroom[]>(data.classrooms);
   const [selectedClassroomId, setSelectedClassroomId] = useState<string>(
     data.classrooms[0]?.id ?? ''
@@ -176,14 +189,15 @@ export function ClassroomDashboard({ data }: Props) {
     const byMonth: AssignmentsByMonth = {};
     data.assignments.forEach((a) => {
       const days = parseScheduleDays(a.schedule);
+      const normalizedMonth = monthKeyFor(parseMonthKey(a.month));
       const entry: Assignment = {
         childId: a.childId,
         classroomId: a.classroomId,
         days,
-        month: a.month,
+        month: normalizedMonth,
       };
-      if (!byMonth[a.month]) byMonth[a.month] = [];
-      byMonth[a.month].push(entry);
+      if (!byMonth[normalizedMonth]) byMonth[normalizedMonth] = [];
+      byMonth[normalizedMonth].push(entry);
     });
     return byMonth;
   }, [data.assignments]);
@@ -196,12 +210,14 @@ export function ClassroomDashboard({ data }: Props) {
   const [newDays, setNewDays] = useState<DayKey[]>([]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const hasUserSelectedClassroom = useRef(false);
 
   useEffect(() => {
     setClassrooms(data.classrooms);
     setChildren(data.children);
     setAssignmentsByMonth(initialAssignments);
     setHasUnsavedChanges(false);
+    hasUserSelectedClassroom.current = false;
   }, [data.children, data.classrooms, initialAssignments]);
 
   useEffect(() => {
@@ -209,8 +225,8 @@ export function ClassroomDashboard({ data }: Props) {
   }, [data.classrooms]);
 
   useEffect(() => {
-    setSelectedMonth(currentMonthKey);
-  }, [currentMonthKey]);
+    setSelectedMonth((prev) => monthOptions.find((m) => m.key === prev)?.key ?? baseMonthKey);
+  }, [baseMonthKey, monthOptions]);
 
   const resetLocalChanges = () => {
     setClassrooms(data.classrooms);
@@ -242,41 +258,59 @@ export function ClassroomDashboard({ data }: Props) {
 
   const handleClassroomChange = (value: string) => {
     if (!hasUnsavedChanges) {
+      hasUserSelectedClassroom.current = true;
       setSelectedClassroomId(value);
       return;
     }
     if (confirmDiscardChanges()) {
       resetLocalChanges();
+      hasUserSelectedClassroom.current = true;
       setSelectedClassroomId(value);
     }
   };
-
-  useEffect(() => {
-    const summary: Record<string, number> = {};
-    const daysSummary: Record<string, Record<DayKey, number>> = {};
-    const monthAssignments = assignmentsByMonth[selectedMonth] ?? [];
-    monthAssignments.forEach((a) => {
-      if (!a.classroomId) return;
-      summary[a.classroomId] = (summary[a.classroomId] ?? 0) + 1;
-      if (!daysSummary[a.classroomId]) {
-        daysSummary[a.classroomId] = { M: 0, T: 0, W: 0, Th: 0, F: 0 };
-      }
-      a.days.forEach((d) => {
-        daysSummary[a.classroomId ?? ''][d] += 1;
-      });
-    });
-    console.log('Dashboard enrollment summary', {
-      month: selectedMonth,
-      classroomId: selectedClassroomId,
-      counts: summary,
-      perDay: daysSummary,
-    });
-  }, [assignmentsByMonth, selectedClassroomId, selectedMonth]);
 
   const currentMonthAssignments = useMemo(
     () => assignmentsByMonth[selectedMonth] ?? [],
     [assignmentsByMonth, selectedMonth]
   );
+
+  useEffect(() => {
+    if (hasUnsavedChanges || hasUserSelectedClassroom.current) return;
+    const firstConfiguredId = data.classrooms[0]?.id ?? '';
+    const firstAssigned = currentMonthAssignments.find((a) => a.classroomId)
+      ?.classroomId;
+    const firstConfiguredHasAssignments = firstConfiguredId
+      ? currentMonthAssignments.some(
+          (a) => a.classroomId === firstConfiguredId
+        )
+      : false;
+
+    if (firstConfiguredId) {
+      if (firstConfiguredHasAssignments) {
+        if (selectedClassroomId !== firstConfiguredId) {
+          setSelectedClassroomId(firstConfiguredId);
+        }
+        return;
+      }
+      if (firstAssigned && selectedClassroomId !== firstAssigned) {
+        setSelectedClassroomId(firstAssigned);
+        return;
+      }
+      if (!selectedClassroomId) {
+        setSelectedClassroomId(firstConfiguredId);
+      }
+      return;
+    }
+
+    if (firstAssigned && selectedClassroomId !== firstAssigned) {
+      setSelectedClassroomId(firstAssigned);
+    }
+  }, [
+    currentMonthAssignments,
+    selectedClassroomId,
+    hasUnsavedChanges,
+    data.classrooms,
+  ]);
 
   const classroomAssignments = useMemo(
     () =>
@@ -495,7 +529,6 @@ export function ClassroomDashboard({ data }: Props) {
         router.refresh();
       })
       .catch((error) => {
-        console.error('Save failed', error);
         alert(
           'Failed to save changes: ' +
             (error instanceof Error ? error.message : 'Unknown error')

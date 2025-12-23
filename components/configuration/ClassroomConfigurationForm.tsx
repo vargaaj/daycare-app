@@ -66,15 +66,13 @@ export function ClassroomConfigurationForm() {
             }))
           );
         }
-      } catch (error) {
-        console.error('Failed to load existing classrooms', error);
+      } catch {
       } finally {
         setIsLoading(false);
       }
     };
 
-    fetchExistingClassrooms().catch((error) => {
-      console.error('Unexpected error loading classrooms', error);
+    fetchExistingClassrooms().catch(() => {
       setIsLoading(false);
     });
   }, []);
@@ -122,7 +120,6 @@ export function ClassroomConfigurationForm() {
           );
         }
       } catch (error) {
-        console.error('Failed to delete classroom', error);
         setSubmissionError(
           error instanceof Error
             ? error.message
@@ -177,6 +174,7 @@ export function ClassroomConfigurationForm() {
         },
         body: JSON.stringify({
           classrooms: classrooms.map((classroom) => ({
+            id: classroom.id,
             name: classroom.name.trim(),
             age_range: classroom.ageRange.trim(),
             capacity: Number(classroom.capacity),
@@ -195,7 +193,6 @@ export function ClassroomConfigurationForm() {
 
       router.push('/upload');
     } catch (error) {
-      console.error('Failed to save classrooms', error);
       setSubmissionError(
         error instanceof Error
           ? error.message

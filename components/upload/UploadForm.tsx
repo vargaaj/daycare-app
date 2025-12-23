@@ -89,8 +89,6 @@ export function UploadForm() {
         | { success: false; error?: string }
         | null;
 
-      console.log(data);
-
       if (!response.ok || !data || data.success !== true) {
         const message =
           (data && 'error' in data && data.error) ||
@@ -108,7 +106,6 @@ export function UploadForm() {
       resetFileInput();
       router.push('/dashboard');
     } catch (error) {
-      console.error('Upload error:', error);
       setStatus({
         type: 'error',
         message:

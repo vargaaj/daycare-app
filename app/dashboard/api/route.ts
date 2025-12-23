@@ -358,11 +358,11 @@ export async function POST(request: Request) {
   ]);
 
   if (childIdsToProject.size > 0) {
-    console.log('Projecting updated children', {
-      month,
-      changedChildIds: Array.from(changedChildIds),
-      newChildIds: newChildRecords.map((c) => c.id),
-    });
+    // console.log('Projecting updated children', {
+    //   month,
+    //   changedChildIds: Array.from(changedChildIds),
+    //   newChildIds: newChildRecords.map((c) => c.id),
+    // });
     const targetMonths = generateThroughSchoolYear(month);
     if (targetMonths.length > 0) {
       const maxAge = Math.max(

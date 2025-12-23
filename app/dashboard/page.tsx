@@ -45,6 +45,18 @@ export default async function DashboardPage() {
     redirect('/upload');
   }
 
+  // const assignmentMonths = Array.from(
+  //   new Set((assignmentsRes.data ?? []).map((a) => a.month))
+  // ).slice(0, 6);
+
+  // console.log('Dashboard data loaded', {
+  //   userId,
+  //   classrooms: classroomsRes.data?.length ?? 0,
+  //   children: childrenRes.data?.length ?? 0,
+  //   assignments: assignmentsRes.data?.length ?? 0,
+  //   months: assignmentMonths,
+  // });
+
   const data = {
     classrooms: (classroomsRes.data ?? []).map((c) => ({
       id: c.id,
@@ -72,4 +84,3 @@ export default async function DashboardPage() {
     </div>
   );
 }
-
