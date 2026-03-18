@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 type Classroom = {
@@ -128,12 +128,26 @@ const ageInMonthsOn = (dobISO: string, monthKey: string) => {
   return months;
 };
 
+const remountKeysByData = new WeakMap<DashboardData, string>();
+let remountKeyCounter = 0;
+
+const getRemountKeyForData = (data: DashboardData) => {
+  const existing = remountKeysByData.get(data);
+  if (existing) return existing;
+  remountKeyCounter += 1;
+  const key = `dashboard-data-${remountKeyCounter}`;
+  remountKeysByData.set(data, key);
+  return key;
+};
+
 export function ClassroomDashboard({ data }: Props) {
+  const remountKey = useMemo(() => getRemountKeyForData(data), [data]);
+  return <ClassroomDashboardContent key={remountKey} data={data} />;
+}
+
+function ClassroomDashboardContent({ data }: Props) {
   const router = useRouter();
-  // Derive a stable current month on the client to avoid server/client timezone drift
-  const [currentMonthKey, setCurrentMonthKey] = useState(() =>
-    firstOfMonthKey(new Date())
-  );
+  const [currentMonthKey] = useState(() => firstOfMonthKey(new Date()));
 
   const assignmentMonths = useMemo(() => {
     const months = data.assignments.map((a) =>
@@ -167,18 +181,10 @@ export function ClassroomDashboard({ data }: Props) {
   }, [baseMonthKey]);
 
   const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthKey);
-
-  // On mount and when client month changes, realign to current and ensure selection is valid
-  useEffect(() => {
-    const clientMonth = firstOfMonthKey(new Date());
-    if (clientMonth !== currentMonthKey) {
-      setCurrentMonthKey(clientMonth);
-      return;
-    }
-    setSelectedMonth(
-      (prev) => monthOptions.find((m) => m.key === prev)?.key ?? baseMonthKey
-    );
-  }, [currentMonthKey, monthOptions, baseMonthKey]);
+  const resolvedSelectedMonth = useMemo(
+    () => monthOptions.find((m) => m.key === selectedMonth)?.key ?? baseMonthKey,
+    [monthOptions, selectedMonth, baseMonthKey]
+  );
   const [classrooms, setClassrooms] = useState<Classroom[]>(data.classrooms);
   const [selectedClassroomId, setSelectedClassroomId] = useState<string>(
     data.classrooms[0]?.id ?? ''
@@ -210,23 +216,8 @@ export function ClassroomDashboard({ data }: Props) {
   const [newDays, setNewDays] = useState<DayKey[]>([]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const hasUserSelectedClassroom = useRef(false);
-
-  useEffect(() => {
-    setClassrooms(data.classrooms);
-    setChildren(data.children);
-    setAssignmentsByMonth(initialAssignments);
-    setHasUnsavedChanges(false);
-    hasUserSelectedClassroom.current = false;
-  }, [data.children, data.classrooms, initialAssignments]);
-
-  useEffect(() => {
-    setSelectedClassroomId((prev) => prev || data.classrooms[0]?.id || '');
-  }, [data.classrooms]);
-
-  useEffect(() => {
-    setSelectedMonth((prev) => monthOptions.find((m) => m.key === prev)?.key ?? baseMonthKey);
-  }, [baseMonthKey, monthOptions]);
+  const [hasUserSelectedClassroom, setHasUserSelectedClassroom] =
+    useState(false);
 
   const resetLocalChanges = () => {
     setClassrooms(data.classrooms);
@@ -258,71 +249,63 @@ export function ClassroomDashboard({ data }: Props) {
 
   const handleClassroomChange = (value: string) => {
     if (!hasUnsavedChanges) {
-      hasUserSelectedClassroom.current = true;
+      setHasUserSelectedClassroom(true);
       setSelectedClassroomId(value);
       return;
     }
     if (confirmDiscardChanges()) {
       resetLocalChanges();
-      hasUserSelectedClassroom.current = true;
+      setHasUserSelectedClassroom(true);
       setSelectedClassroomId(value);
     }
   };
 
   const currentMonthAssignments = useMemo(
-    () => assignmentsByMonth[selectedMonth] ?? [],
-    [assignmentsByMonth, selectedMonth]
+    () => assignmentsByMonth[resolvedSelectedMonth] ?? [],
+    [assignmentsByMonth, resolvedSelectedMonth]
   );
+  const resolvedSelectedClassroomId = useMemo(() => {
+    const baseSelectedClassroomId =
+      selectedClassroomId || data.classrooms[0]?.id || '';
+    if (hasUnsavedChanges || hasUserSelectedClassroom) {
+      return baseSelectedClassroomId;
+    }
 
-  useEffect(() => {
-    if (hasUnsavedChanges || hasUserSelectedClassroom.current) return;
     const firstConfiguredId = data.classrooms[0]?.id ?? '';
-    const firstAssigned = currentMonthAssignments.find((a) => a.classroomId)
-      ?.classroomId;
+    const firstAssigned =
+      currentMonthAssignments.find((a) => a.classroomId)?.classroomId ?? '';
     const firstConfiguredHasAssignments = firstConfiguredId
-      ? currentMonthAssignments.some(
-          (a) => a.classroomId === firstConfiguredId
-        )
+      ? currentMonthAssignments.some((a) => a.classroomId === firstConfiguredId)
       : false;
 
     if (firstConfiguredId) {
-      if (firstConfiguredHasAssignments) {
-        if (selectedClassroomId !== firstConfiguredId) {
-          setSelectedClassroomId(firstConfiguredId);
-        }
-        return;
-      }
-      if (firstAssigned && selectedClassroomId !== firstAssigned) {
-        setSelectedClassroomId(firstAssigned);
-        return;
-      }
-      if (!selectedClassroomId) {
-        setSelectedClassroomId(firstConfiguredId);
-      }
-      return;
+      if (firstConfiguredHasAssignments) return firstConfiguredId;
+      if (firstAssigned) return firstAssigned;
+      if (!baseSelectedClassroomId) return firstConfiguredId;
+      return baseSelectedClassroomId;
     }
 
-    if (firstAssigned && selectedClassroomId !== firstAssigned) {
-      setSelectedClassroomId(firstAssigned);
-    }
+    if (firstAssigned) return firstAssigned;
+    return baseSelectedClassroomId;
   }, [
     currentMonthAssignments,
     selectedClassroomId,
     hasUnsavedChanges,
+    hasUserSelectedClassroom,
     data.classrooms,
   ]);
 
   const classroomAssignments = useMemo(
     () =>
       currentMonthAssignments.filter(
-        (a) => a.classroomId === selectedClassroomId
+        (a) => a.classroomId === resolvedSelectedClassroomId
       ),
-    [currentMonthAssignments, selectedClassroomId]
+    [currentMonthAssignments, resolvedSelectedClassroomId]
   );
 
   const enrolledCount = classroomAssignments.length;
   const selectedClassroom = classrooms.find(
-    (c) => c.id === selectedClassroomId
+    (c) => c.id === resolvedSelectedClassroomId
   );
   const capacity = selectedClassroom?.capacity ?? null;
   const ageRange = selectedClassroom?.ageRange ?? null;
@@ -344,14 +327,14 @@ export function ClassroomDashboard({ data }: Props) {
 
   const dayCounts = useMemo(
     () =>
-      dayCountsByClassroom[selectedClassroomId] ?? {
+      dayCountsByClassroom[resolvedSelectedClassroomId] ?? {
         M: 0,
         T: 0,
         W: 0,
         Th: 0,
         F: 0,
       },
-    [dayCountsByClassroom, selectedClassroomId]
+    [dayCountsByClassroom, resolvedSelectedClassroomId]
   );
 
   const capacityByClassroom = useMemo(() => {
@@ -390,7 +373,7 @@ export function ClassroomDashboard({ data }: Props) {
     .map((a) => {
       const child = childById.get(a.childId);
       if (!child) return null;
-      const ageMonths = ageInMonthsOn(child.dob, selectedMonth);
+      const ageMonths = ageInMonthsOn(child.dob, resolvedSelectedMonth);
       return { assignment: a, child, ageMonths };
     })
     .filter(
@@ -401,7 +384,7 @@ export function ClassroomDashboard({ data }: Props) {
   const setDay = (childId: string, day: DayKey, enabled: boolean) => {
     setHasUnsavedChanges(true);
     setAssignmentsByMonth((prev) => {
-      const monthAssignments = prev[selectedMonth] ?? [];
+      const monthAssignments = prev[resolvedSelectedMonth] ?? [];
       const next = monthAssignments.map((a) => {
         if (a.childId !== childId) return a;
         const has = a.days.includes(day);
@@ -413,13 +396,13 @@ export function ClassroomDashboard({ data }: Props) {
         }
         return a;
       });
-      return { ...prev, [selectedMonth]: next };
+      return { ...prev, [resolvedSelectedMonth]: next };
     });
   };
 
   const updateClassroom = (childId: string, classroomId: string) => {
     const nextClassroomId = classroomId || null;
-    const monthAssignments = assignmentsByMonth[selectedMonth] ?? [];
+    const monthAssignments = assignmentsByMonth[resolvedSelectedMonth] ?? [];
     const current = monthAssignments.find((a) => a.childId === childId);
     if (!current) return;
     if (nextClassroomId && nextClassroomId !== current.classroomId) {
@@ -448,24 +431,26 @@ export function ClassroomDashboard({ data }: Props) {
     }
     setHasUnsavedChanges(true);
     setAssignmentsByMonth((prev) => {
-      const monthAssignments = prev[selectedMonth] ?? [];
+      const monthAssignments = prev[resolvedSelectedMonth] ?? [];
       const next = monthAssignments.map((a) =>
         a.childId === childId ? { ...a, classroomId: nextClassroomId } : a
       );
-      return { ...prev, [selectedMonth]: next };
+      return { ...prev, [resolvedSelectedMonth]: next };
     });
   };
 
   const onSave = () => {
     const newChildren = children.filter((c) => c.isNew);
-    const assignments = (assignmentsByMonth[selectedMonth] ?? []).map((a) => ({
-      childId: a.childId,
-      classroomId: a.classroomId,
-      days: a.days,
-    }));
+    const assignments = (assignmentsByMonth[resolvedSelectedMonth] ?? []).map(
+      (a) => ({
+        childId: a.childId,
+        classroomId: a.classroomId,
+        days: a.days,
+      })
+    );
 
     const newChildrenPayload = newChildren.map((c) => {
-      const assignment = (assignmentsByMonth[selectedMonth] ?? []).find(
+      const assignment = (assignmentsByMonth[resolvedSelectedMonth] ?? []).find(
         (a) => a.childId === c.id
       );
       return {
@@ -482,7 +467,7 @@ export function ClassroomDashboard({ data }: Props) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        month: selectedMonth,
+        month: resolvedSelectedMonth,
         assignments,
         newChildren: newChildrenPayload,
       }),
@@ -595,17 +580,17 @@ export function ClassroomDashboard({ data }: Props) {
     setChildren((prev) => [...prev, child]);
     setHasUnsavedChanges(true);
     setAssignmentsByMonth((prev) => {
-      const monthAssignments = prev[selectedMonth] ?? [];
+      const monthAssignments = prev[resolvedSelectedMonth] ?? [];
       const next: Assignment[] = [
         ...monthAssignments,
         {
           childId: id,
-          classroomId: selectedClassroomId,
+          classroomId: resolvedSelectedClassroomId || null,
           days: [...newDays],
-          month: selectedMonth,
+          month: resolvedSelectedMonth,
         },
       ];
-      return { ...prev, [selectedMonth]: next };
+      return { ...prev, [resolvedSelectedMonth]: next };
     });
     setNewFirst('');
     setNewLast('');
@@ -617,11 +602,11 @@ export function ClassroomDashboard({ data }: Props) {
   const removeChild = (childId: string) => {
     setHasUnsavedChanges(true);
     setAssignmentsByMonth((prev) => {
-      const monthAssignments = prev[selectedMonth] ?? [];
+      const monthAssignments = prev[resolvedSelectedMonth] ?? [];
       const next = monthAssignments.map((a) =>
         a.childId === childId ? { ...a, classroomId: null } : a
       );
-      return { ...prev, [selectedMonth]: next };
+      return { ...prev, [resolvedSelectedMonth]: next };
     });
   };
 
@@ -641,7 +626,7 @@ export function ClassroomDashboard({ data }: Props) {
             <label className="flex items-center gap-2 text-sm text-slate-700">
               <span className="font-medium">Month</span>
               <select
-                value={selectedMonth}
+                value={resolvedSelectedMonth}
                 onChange={(e) => handleMonthChange(e.target.value)}
                 className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
               >
@@ -655,7 +640,7 @@ export function ClassroomDashboard({ data }: Props) {
             <label className="flex items-center gap-2 text-sm text-slate-700">
               <span className="font-medium">Classroom</span>
               <select
-                value={selectedClassroomId}
+                value={resolvedSelectedClassroomId}
                 onChange={(e) => handleClassroomChange(e.target.value)}
                 className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
               >
@@ -911,7 +896,7 @@ export function ClassroomDashboard({ data }: Props) {
                     colSpan={6}
                   >
                     No children assigned to this classroom for{' '}
-                    {formatMonthLabel(selectedMonth)}.
+                    {formatMonthLabel(resolvedSelectedMonth)}.
                   </td>
                 </tr>
               ) : (

@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import {
-  SignedIn,
-  SignedOut,
+  Show,
   SignInButton,
   SignUpButton,
   UserButton,
@@ -36,7 +35,7 @@ export function Navbar() {
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <SignedOut>
+          <Show when="signed-out">
             <SignInButton mode="modal">
               <button className="rounded-full border border-indigo-600 px-4 py-2 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-600 hover:text-white sm:text-sm">
                 Log in
@@ -47,8 +46,8 @@ export function Navbar() {
                 Register
               </button>
             </SignUpButton>
-          </SignedOut>
-          <SignedIn>
+          </Show>
+          <Show when="signed-in">
             <div className="flex items-center gap-3">
               <Link
                 href="/dashboard"
@@ -64,7 +63,7 @@ export function Navbar() {
               </Link>
             </div>
             <UserButton />
-          </SignedIn>
+          </Show>
         </div>
       </nav>
     </header>
