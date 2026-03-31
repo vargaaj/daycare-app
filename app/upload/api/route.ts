@@ -2,20 +2,17 @@ import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { read, utils } from 'xlsx';
 import { getSupabaseAdminClient } from '@/lib/supabaseAdmin';
+import {
+  isXlsxFileName,
+  UPLOAD_FILE_TYPE_ERROR,
+  UPLOAD_REQUIRED_COLUMNS,
+} from '@/lib/upload/shared';
 import type {
   UploadErrorResponse,
   UploadSuccessCounts,
   UploadSuccessResponse,
   WorksheetChildRow,
 } from '@/types/upload';
-
-const REQUIRED_COLUMNS = [
-  'First Name',
-  'Last Name',
-  'Classroom',
-  'Dob',
-  'Schedule',
-] as const;
 
 const EXCEL_EPOCH = Date.UTC(1899, 11, 30);
 
@@ -80,7 +77,7 @@ const extractRows = (buffer: Buffer): WorksheetChildRow[] => {
     throw new Error('Unable to read the header row from the uploaded file.');
   }
 
-  const missingColumns = REQUIRED_COLUMNS.filter(
+  const missingColumns = UPLOAD_REQUIRED_COLUMNS.filter(
     (column) => !headers.includes(column)
   );
 
@@ -172,8 +169,8 @@ export async function POST(request: Request) {
     return errorResponse('No file was uploaded.', 400);
   }
 
-  if (!file.name.toLowerCase().endsWith('.xlsx')) {
-    return errorResponse('Only .xlsx files are supported.', 400);
+  if (!isXlsxFileName(file.name)) {
+    return errorResponse(UPLOAD_FILE_TYPE_ERROR, 400);
   }
 
   let buffer: Buffer;
