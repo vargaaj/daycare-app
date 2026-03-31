@@ -1,142 +1,23 @@
 'use client';
 
-import { useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import type { UploadSuccessCounts } from '@/types/upload';
-
-const requiredColumns = [
-  'First Name',
-  'Last Name',
-  'Classroom',
-  'Dob',
-  'Schedule',
-] as const;
-
-type StatusState =
-  | {
-      type: 'success';
-      message: string;
-      counts: UploadSuccessCounts;
-      filePath: string;
-    }
-  | { type: 'error'; message: string };
+import { UPLOAD_REQUIRED_COLUMNS } from '@/lib/upload/shared';
+import { useUploadForm } from '@/components/upload/useUploadForm';
 
 export function UploadForm() {
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [status, setStatus] = useState<StatusState | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const router = useRouter();
-
-  const resetFileInput = () => {
-    setSelectedFile(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
-
-  const handleFileSelection = (file: File | null) => {
-    setSelectedFile(file);
-    setStatus(null);
-  };
-
-  const onInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0] ?? null;
-    handleFileSelection(file);
-  };
-
-  const validateFileType = (file: File) => {
-    if (!file.name.toLowerCase().endsWith('.xlsx')) {
-      setStatus({
-        type: 'error',
-        message: 'Only .xlsx files are supported.',
-      });
-      return false;
-    }
-    return true;
-  };
-
-  const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-
-    if (!selectedFile) {
-      setStatus({
-        type: 'error',
-        message: 'Please select a file to upload.',
-      });
-      return;
-    }
-
-    if (!validateFileType(selectedFile)) {
-      return;
-    }
-
-    setIsUploading(true);
-    setStatus(null);
-
-    try {
-      const formData = new FormData();
-      formData.append('file', selectedFile);
-
-      const response = await fetch('/upload/api', {
-        method: 'POST',
-        body: formData,
-      });
-
-      const data = (await response.json().catch(() => null)) as
-        | { success: true; filePath: string; counts: UploadSuccessCounts }
-        | { success: false; error?: string }
-        | null;
-
-      if (!response.ok || !data || data.success !== true) {
-        const message =
-          (data && 'error' in data && data.error) ||
-          'We could not process your upload. Please try again.';
-        throw new Error(message);
-      }
-
-      setStatus({
-        type: 'success',
-        message:
-          'Upload complete! Your classrooms and assignments are updated.',
-        counts: data.counts,
-        filePath: data.filePath,
-      });
-      resetFileInput();
-      router.push('/dashboard');
-    } catch (error) {
-      setStatus({
-        type: 'error',
-        message:
-          error instanceof Error
-            ? error.message
-            : 'Something went wrong during the upload.',
-      });
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
-  const onDrop = (event: React.DragEvent<HTMLLabelElement>) => {
-    event.preventDefault();
-    setIsDragging(false);
-
-    const file = event.dataTransfer.files?.[0];
-    if (file) {
-      handleFileSelection(file);
-      if (fileInputRef.current) {
-        fileInputRef.current.files = event.dataTransfer.files;
-      }
-    }
-  };
-
-  const onDragOver = (event: React.DragEvent<HTMLLabelElement>) => {
-    event.preventDefault();
-    setIsDragging(true);
-  };
-
-  const onDragLeave = () => setIsDragging(false);
+  const {
+    fileInputRef,
+    isSubmitDisabled,
+    isUploading,
+    onDragLeave,
+    onDragOver,
+    onDrop,
+    onInputChange,
+    onSubmit,
+    selectedFileLabel,
+    dropzoneToneClasses,
+    status,
+    statusToneClasses,
+  } = useUploadForm();
 
   return (
     <form
@@ -158,11 +39,7 @@ export function UploadForm() {
           onDrop={onDrop}
           onDragOver={onDragOver}
           onDragLeave={onDragLeave}
-          className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed px-6 py-12 text-center transition ${
-            isDragging
-              ? 'border-indigo-500 bg-indigo-50'
-              : 'border-slate-300 hover:border-indigo-400 hover:bg-slate-50'
-          }`}
+          className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed px-6 py-12 text-center transition ${dropzoneToneClasses}`}
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -184,7 +61,7 @@ export function UploadForm() {
             />
           </svg>
           <span className="mt-4 text-sm font-medium text-slate-900">
-            {selectedFile ? selectedFile.name : 'Drag and drop your file here'}
+            {selectedFileLabel}
           </span>
           <span className="mt-2 text-xs text-slate-500">
             Only .xlsx files are supported
@@ -207,7 +84,7 @@ export function UploadForm() {
       <button
         type="submit"
         className="mt-6 w-full rounded-full bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-indigo-300"
-        disabled={!selectedFile || isUploading}
+        disabled={isSubmitDisabled}
       >
         {isUploading ? 'Uploading...' : 'Upload Spreadsheet'}
       </button>
@@ -226,11 +103,7 @@ export function UploadForm() {
 
       {status && (
         <div
-          className={`mt-6 rounded-xl border px-4 py-3 text-sm ${
-            status.type === 'success'
-              ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-              : 'border-rose-200 bg-rose-50 text-rose-700'
-          }`}
+          className={`mt-6 rounded-xl border px-4 py-3 text-sm ${statusToneClasses}`}
         >
           <p className="font-semibold">{status.message}</p>
           {status.type === 'success' ? (
@@ -251,7 +124,7 @@ export function UploadForm() {
         <p className="font-semibold text-slate-900">Required columns:</p>
         <div className="mt-4 overflow-hidden rounded-lg border border-slate-200 bg-white text-left text-[11px] sm:text-xs">
           <div className="grid grid-cols-5 bg-slate-50 px-3 py-2 font-semibold text-slate-700">
-            {requiredColumns.map((column) => (
+            {UPLOAD_REQUIRED_COLUMNS.map((column) => (
               <span key={column}>{column}</span>
             ))}
           </div>
