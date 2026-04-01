@@ -56,6 +56,15 @@
   - assignments are constrained by classroom age range, daily capacity, and monotonic progression to older rooms
   - upload currently performs a fresh overwrite of `children` and `classroom_assignments` for the signed-in user
 
+## Commenting
+
+- In files you touch, default to very thorough tutorial-style comments, even when that means commenting most lines or very small groups of lines.
+- Add doc comments to exported functions in touched files so readers can understand the purpose, inputs, outputs, and important side effects without reverse-engineering the implementation.
+- Add section comments before multi-step flows and non-obvious transformations so readers can follow why the code is structured that way and what each block is responsible for.
+- Prefer comments that explain what a specific line or tiny block is doing, not just high-level intent. If a reader could plausibly ask "what is this line doing here?", answer that question in a nearby comment.
+- In tests, add a comment describing the purpose of each test and add extra comments around any setup, mock behavior, or assertion block that is not immediately obvious.
+- Keep comments specific to the lines or block they describe, and update or remove them when behavior changes so the explanation stays trustworthy.
+
 ## Database And API Notes
 
 - Tables used directly in code: `classrooms`, `children`, `classroom_assignments`.

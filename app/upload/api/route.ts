@@ -1,161 +1,105 @@
+// Next.js response helper used to return structured JSON from the route.
 import { NextResponse } from 'next/server';
+// Clerk server helper used to read the signed-in user inside a route handler.
 import { auth } from '@clerk/nextjs/server';
-import { read, utils } from 'xlsx';
+// Server-only Supabase admin client used for storage and database writes.
 import { getSupabaseAdminClient } from '@/lib/supabaseAdmin';
 import {
+  // Validates the uploaded file extension before any heavy work starts.
   isXlsxFileName,
+  // Reused user-facing error for unsupported file extensions.
   UPLOAD_FILE_TYPE_ERROR,
-  UPLOAD_REQUIRED_COLUMNS,
+  // Generic fallback error for unexpected internal failures.
+  UPLOAD_UNEXPECTED_ERROR,
 } from '@/lib/upload/shared';
+import {
+  // Type guard that lets the route preserve helper-provided status codes.
+  isUploadRouteError,
+  // Structured error class used by the upload helper modules.
+  UploadRouteError,
+} from '@/lib/upload/server/errors';
+// Helper that rewrites the parsed workbook rows into database records.
+import { persistUploadedWorkbookRows } from '@/lib/upload/server/persistUpload';
+// Helper that stores the raw workbook in Supabase Storage.
+import { storeUploadedWorkbook } from '@/lib/upload/server/storage';
+// Helper that parses and validates workbook rows before persistence.
+import { parseUploadedWorkbook } from '@/lib/upload/server/workbook';
 import type {
+  // Error payload shape returned by the route.
   UploadErrorResponse,
-  UploadSuccessCounts,
+  // Success payload shape returned by the route.
   UploadSuccessResponse,
-  WorksheetChildRow,
 } from '@/types/upload';
 
-const EXCEL_EPOCH = Date.UTC(1899, 11, 30);
-
+// Force the route onto the Node runtime because it depends on Buffer and the
+// server-side `xlsx` parser rather than the Edge runtime.
 export const runtime = 'nodejs';
 
-const pad = (value: number) => value.toString().padStart(2, '0');
-
-const formatDate = (date: Date) =>
-  `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-
-const parseDob = (value: unknown): string | null => {
-  if (value instanceof Date) {
-    return formatDate(value);
-  }
-
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    const milliseconds = Math.round(value * 24 * 60 * 60 * 1000);
-    const date = new Date(EXCEL_EPOCH + milliseconds);
-    return Number.isNaN(date.getTime()) ? null : formatDate(date);
-  }
-
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    if (!trimmed) {
-      return null;
-    }
-
-    const normalized = trimmed.replace(/[.]/g, '/');
-    const parsedDate = new Date(normalized);
-    if (!Number.isNaN(parsedDate.getTime())) {
-      return formatDate(parsedDate);
-    }
-  }
-
-  return null;
-};
-
-const sanitizeFileName = (name: string) =>
-  name
-    .replaceAll('\\', '')
-    .replaceAll('/', '')
-    .replace(/[^\w.\-]/g, '_');
-
-const extractRows = (buffer: Buffer): WorksheetChildRow[] => {
-  const workbook = read(buffer, { type: 'buffer', cellDates: true });
-
-  if (workbook.SheetNames.length === 0) {
-    throw new Error('The uploaded file does not contain any sheets.');
-  }
-
-  const sheet = workbook.Sheets[workbook.SheetNames[0]];
-
-  const headerRows = utils.sheet_to_json<(string | number | null)[]>(sheet, {
-    header: 1,
-    raw: false,
-  });
-  const headers = headerRows[0]?.map((value) =>
-    typeof value === 'string' ? value.trim() : String(value)
-  );
-
-  if (!headers) {
-    throw new Error('Unable to read the header row from the uploaded file.');
-  }
-
-  const missingColumns = UPLOAD_REQUIRED_COLUMNS.filter(
-    (column) => !headers.includes(column)
-  );
-
-  if (missingColumns.length > 0) {
-    throw new Error(
-      `Missing required columns: ${missingColumns.join(
-        ', '
-      )}. Please update the spreadsheet and try again.`
-    );
-  }
-
-  const records = utils.sheet_to_json<Record<string, unknown>>(sheet, {
-    defval: null,
-    raw: false,
-  });
-
-  const invalidRows: number[] = [];
-  const rows: WorksheetChildRow[] = [];
-
-  records.forEach((record, index) => {
-    const firstName = String(record['First Name'] ?? '').trim();
-    const lastName = String(record['Last Name'] ?? '').trim();
-    const classroom = String(record['Classroom'] ?? '').trim();
-    const schedule = String(record['Schedule'] ?? '').trim();
-    const dob = parseDob(record['Dob']);
-
-    const isEmptyRow =
-      !firstName && !lastName && !classroom && !schedule && !dob;
-
-    if (isEmptyRow) {
-      return;
-    }
-
-    if (!firstName || !lastName || !classroom || !schedule || !dob) {
-      invalidRows.push(index + 2);
-      return;
-    }
-
-    rows.push({ firstName, lastName, classroom, schedule, dob });
-  });
-
-  if (rows.length === 0) {
-    throw new Error('No classroom data found in the uploaded spreadsheet.');
-  }
-
-  if (invalidRows.length > 0) {
-    throw new Error(
-      `Rows ${invalidRows.join(
-        ', '
-      )} are missing required values. Please fix them and re-upload the file.`
-    );
-  }
-
-  return rows;
-};
-
-const buildChildKey = (firstName: string, lastName: string, dob: string) =>
-  `${firstName.toLowerCase()}|${lastName.toLowerCase()}|${dob}`;
-
-const buildClassroomKey = (name: string) => name.toLowerCase();
-
+// Wraps successful payloads in the same `201` response shape everywhere.
 const successResponse = (response: UploadSuccessResponse) =>
   NextResponse.json(response, { status: 201 });
 
+// Wraps failed payloads in the shared error response shape.
 const errorResponse = (error: string, status = 400) =>
   NextResponse.json<UploadErrorResponse>({ success: false, error }, { status });
 
-export async function POST(request: Request) {
-  const user = await auth();
+/**
+ * Reads the browser-provided file into a Node buffer so the workbook parser and
+ * storage upload share the same raw bytes.
+ */
+const readUploadedFileBuffer = async (file: File): Promise<Buffer> => {
+  try {
+    // Convert the browser `File` object into the Node `Buffer` shape used by
+    // both the workbook parser and the storage helper.
+    return Buffer.from(await file.arrayBuffer());
+  } catch {
+    // Surface a user-facing upload error instead of leaking a low-level read failure.
+    throw new UploadRouteError('Unable to read the uploaded file.', 400);
+  }
+};
 
-  if (!user) {
+/**
+ * Runs best-effort optimization after a successful upload without blocking the
+ * user from seeing a success response if optimization fails.
+ */
+const runUploadOptimization = async (
+  supabase: ReturnType<typeof getSupabaseAdminClient>,
+  userId: string
+) => {
+  try {
+    // Load the optimizer lazily so the route only pays the cost after a
+    // successful upload rather than on every import of the route module.
+    const { optimizeFutureClassrooms } = await import(
+      '@/lib/optimization/optimizeClassrooms'
+    );
+    // Re-run future-month optimization using the freshly uploaded classroom data.
+    await optimizeFutureClassrooms(supabase, userId);
+  } catch (error) {
+    // Upload success should not be rolled back just because the follow-up
+    // optimization pass failed, so we only log the failure here.
+    console.error('Failed to run optimization after upload', error);
+  }
+};
+
+/**
+ * Accepts an uploaded classroom workbook, stores the original spreadsheet, and
+ * replaces the current upload-backed records for the signed-in user.
+ */
+export async function POST(request: Request) {
+  // The upload endpoint only makes sense for a signed-in account because every
+  // downstream storage and database write is scoped by `userId`.
+  const { userId } = await auth();
+
+  if (!userId) {
+    // Stop before touching storage or database state when the request is anonymous.
     return errorResponse('Unauthorized.', 401);
   }
 
-  const userId = user.userId;
-
+  // Create the shared Supabase client once and pass it through the helper pipeline.
   const supabase = getSupabaseAdminClient();
 
+  // FormData parsing can throw for malformed multipart bodies, so isolate that
+  // failure and turn it into a normal JSON error response.
   let formData: FormData;
   try {
     formData = await request.formData();
@@ -163,221 +107,62 @@ export async function POST(request: Request) {
     return errorResponse('Invalid form data.', 400);
   }
 
+  // The browser submits the workbook under the `file` key. Anything else should
+  // fail early before we touch parsing, storage, or database state.
   const file = formData.get('file');
 
   if (!(file instanceof File)) {
+    // Reject requests that omit the upload field or send a non-file value.
     return errorResponse('No file was uploaded.', 400);
   }
 
   if (!isXlsxFileName(file.name)) {
+    // Reject unsupported file types before reading bytes or parsing the workbook.
     return errorResponse(UPLOAD_FILE_TYPE_ERROR, 400);
   }
 
-  let buffer: Buffer;
   try {
-    buffer = Buffer.from(await file.arrayBuffer());
-  } catch {
-    return errorResponse('Unable to read the uploaded file.', 400);
-  }
-
-  let rows: WorksheetChildRow[];
-  try {
-    rows = extractRows(buffer);
-  } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : 'Unable to parse the uploaded spreadsheet.';
-    return errorResponse(message, 400);
-  }
-
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const sanitizedName = sanitizeFileName(file.name);
-  const storagePath = `uploads/${userId}/${timestamp}_${sanitizedName}`;
-
-  const { error: storageError } = await supabase.storage
-    .from('uploads')
-    .upload(storagePath, buffer, {
-      contentType:
-        file.type ||
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      upsert: false,
+    // The route is intentionally just orchestration:
+    // 1. read the raw bytes once
+    // 2. parse and validate workbook rows
+    // 3. store the original file
+    // 4. persist the normalized child/assignment data
+    // 5. trigger best-effort optimization
+    const buffer = await readUploadedFileBuffer(file);
+    // Parse and validate the workbook before we write anything to storage or the database.
+    const rows = parseUploadedWorkbook(buffer);
+    // Persist the original workbook bytes so the upload has an audit trail.
+    const filePath = await storeUploadedWorkbook({
+      supabase,
+      userId,
+      file,
+      buffer,
     });
+    // Rewrite the parsed rows into the app's child and assignment tables.
+    const counts = await persistUploadedWorkbookRows({ supabase, userId, rows });
 
-  if (storageError) {
-    return errorResponse(
-      storageError.message ||
-        'We could not store the uploaded file. Please try again.',
-      502
-    );
-  }
+    // Optimization runs after the core upload succeeds and never changes the response shape.
+    await runUploadOptimization(supabase, userId);
 
-  const classroomNames = Array.from(
-    new Set(rows.map((row) => row.classroom.trim()).filter(Boolean))
-  );
-
-  const { data: existingClassrooms, error: classroomsSelectError } =
-    await supabase.from('classrooms').select('id, name').eq('user_id', userId);
-
-  if (classroomsSelectError) {
-    return errorResponse(
-      'Failed to load existing classrooms. Please try again.',
-      500
-    );
-  }
-
-  const classroomMap = new Map<string, string>();
-  existingClassrooms?.forEach((classroom) => {
-    classroomMap.set(buildClassroomKey(classroom.name), classroom.id);
-  });
-
-  const missingClassrooms = classroomNames.filter(
-    (name) => !classroomMap.has(buildClassroomKey(name))
-  );
-
-  if (missingClassrooms.length > 0) {
-    return errorResponse(
-      `The following classrooms do not exist for your account: ${missingClassrooms.join(
-        ', '
-      )}. Please create them before uploading.`,
-      400
-    );
-  }
-
-  // Fresh overwrite: remove existing assignments and children for this user
-  const { error: deleteAssignmentsError } = await supabase
-    .from('classroom_assignments')
-    .delete()
-    .eq('user_id', userId);
-  if (deleteAssignmentsError) {
-    console.error('Failed to delete existing assignments', deleteAssignmentsError);
-    return errorResponse(
-      'Failed to reset your previous assignments. Please try again.',
-      500
-    );
-  }
-
-  const { error: deleteChildrenError } = await supabase
-    .from('children')
-    .delete()
-    .eq('user_id', userId);
-  if (deleteChildrenError) {
-    console.error('Failed to delete existing children', deleteChildrenError);
-    return errorResponse(
-      'Failed to reset your previous children. Please try again.',
-      500
-    );
-  }
-
-  // Deduplicate children within the upload
-  const uniqueChildEntries = new Map<string, WorksheetChildRow>();
-  rows.forEach((row) => {
-    uniqueChildEntries.set(
-      buildChildKey(row.firstName, row.lastName, row.dob),
-      row
-    );
-  });
-
-  const newChildrenPayload = Array.from(uniqueChildEntries.values()).map(
-    (row) => ({
-      user_id: userId,
-      first_name: row.firstName,
-      last_name: row.lastName,
-      dob: row.dob,
-    })
-  );
-
-  const { data: insertedChildren, error: insertChildrenError } = await supabase
-    .from('children')
-    .insert(newChildrenPayload)
-    .select('id, first_name, last_name, dob');
-
-  if (insertChildrenError) {
-    console.error('Failed to create child records', insertChildrenError);
-    return errorResponse(
-      'Failed to create child records. Please try again.',
-      500
-    );
-  }
-
-  const childMap = new Map<string, string>();
-  insertedChildren?.forEach((child) => {
-    const key = buildChildKey(child.first_name, child.last_name, child.dob);
-    childMap.set(key, child.id);
-  });
-
-  const childrenCreated = insertedChildren?.length ?? 0;
-  const childrenReused = 0;
-
-  const currentMonth = new Date();
-  const monthDate = new Date(
-    currentMonth.getFullYear(),
-    currentMonth.getMonth(),
-    1
-  );
-  const monthISO = formatDate(monthDate);
-
-  const assignmentsPayload = Array.from(uniqueChildEntries.entries()).map(
-    ([key, row]) => {
-      const childId = childMap.get(key);
-      const classroomId = classroomMap.get(buildClassroomKey(row.classroom));
-
-      if (!childId || !classroomId) {
-        throw new Error(
-          `Unable to resolve classroom or child for ${row.firstName} ${row.lastName}.`
-        );
-      }
-
-      return {
-        child_id: childId,
-        classroom_id: classroomId,
-        user_id: userId,
-        month: monthISO,
-        schedule: row.schedule,
-      };
-    }
-  );
-
-  let assignmentsProcessed = 0;
-
-  if (assignmentsPayload.length > 0) {
-    const { data: insertedAssignments, error: insertError } = await supabase
-      .from('classroom_assignments')
-      .insert(assignmentsPayload)
-      .select('id');
-
-    if (insertError) {
-      console.error('Failed to insert classroom assignments', insertError);
-      return errorResponse(
-        'Failed to save classroom assignments. Please try again.',
-        500
-      );
-    }
-
-    assignmentsProcessed =
-      insertedAssignments?.length ?? assignmentsPayload.length;
-  }
-
-  const counts: UploadSuccessCounts = {
-    childrenCreated,
-    childrenReused,
-    assignmentsProcessed,
-  };
-
-  // Trigger optimization for future months (current month stays frozen)
-  try {
-    const { optimizeFutureClassrooms } = await import(
-      '@/lib/optimization/optimizeClassrooms'
-    );
-    await optimizeFutureClassrooms(supabase, userId ?? '');
+    // Return the same success payload the client hook expects.
+    return successResponse({
+      success: true,
+      filePath,
+      counts,
+    });
   } catch (error) {
-    console.error('Failed to run optimization after upload', error);
-  }
+    // Known upload failures already carry the user-facing status/message pair
+    // chosen by the helper that detected the problem.
+    if (isUploadRouteError(error)) {
+      // Reuse the status/message chosen by the helper that detected the problem.
+      return errorResponse(error.message, error.status);
+    }
 
-  return successResponse({
-    success: true,
-    filePath: storagePath,
-    counts,
-  });
+    // Anything else is treated as an internal failure so the API still returns
+    // a JSON payload instead of crashing the route with an opaque framework error.
+    console.error('Unexpected upload failure', error);
+    // Fall back to the shared generic message for truly unexpected failures.
+    return errorResponse(UPLOAD_UNEXPECTED_ERROR, 500);
+  }
 }
 
